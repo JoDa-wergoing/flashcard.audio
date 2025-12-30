@@ -33,3 +33,5 @@ key.properties
 
 # Crashlytics / Firebase (optioneel)
 google-services.json
+
+*.bak

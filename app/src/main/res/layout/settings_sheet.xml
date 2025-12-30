@@ -3,7 +3,7 @@
     android:id="@+id/settingsSheetRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/fc_sheet_bg"
+    android:background="@drawable/bg_app"
     android:padding="16dp">
 
     <LinearLayout

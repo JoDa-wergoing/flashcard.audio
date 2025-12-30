@@ -11,7 +11,7 @@
     <!-- Accent -->
     <color name="fc_accent">#4DA3FF</color>
 
-    <!-- Settings sheet (must stay white, independent of app theme) -->
+    <!-- Settings sheet -->
     <color name="fc_sheet_bg">#FFFFFF</color>
     <color name="fc_sheet_text_primary">#111111</color>
     <color name="fc_sheet_text_secondary">#3C3C3C</color>

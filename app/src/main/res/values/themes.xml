@@ -13,6 +13,7 @@
         <!-- Surfaces -->
         <item name="colorSurface">@color/fc_surface</item>
         <item name="android:colorBackground">@color/fc_bg</item>
+        <item name="android:windowBackground">@drawable/bg_app</item>
 
         <!-- Text/icons on dark -->
         <item name="colorOnSurface">@color/fc_text_primary</item>
