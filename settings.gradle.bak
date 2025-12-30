@@ -1,0 +1,2 @@
+rootProject.name = "AnkiListen"
+include(":app")

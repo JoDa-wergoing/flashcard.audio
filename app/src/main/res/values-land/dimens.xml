@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- lager zetten in landscape -->
+    <dimen name="main_controls_padding_bottom">16dp</dimen>
+    <dimen name="main_controls_margin_bottom">8dp</dimen>
+</resources>

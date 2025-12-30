@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">Flashcard.Audio</string>
+
+    <string name="settings">Settings</string>
+
+    <string name="import_apkg">Import</string>
+    <string name="clear_cache">Clear</string>
+
+    <string name="source_lang">First sentence language</string>
+    <string name="target_lang">Second sentence language</string>
+    <string name="lang_hint">e.g. id / nl</string>
+
+    <string name="example_speed">First sentence speed</string>
+    <string name="pause_between">Pause between sentences</string>
+    <string name="gap_between_cards">Pause between cards (autoplay)</string>
+
+    <string name="play">Auto</string>
+    <string name="stop">Stop</string>
+    <string name="prev">◀</string>
+    <string name="next">▶</string>
+
+    <string name="import_first">Import a deck first.</string>
+    <string name="ready_import">Import a deck to begin.</string>
+    <string name="importing">Importing…</string>
+    <string name="done_end">Done.</string>
+    <string name="cache_cleared">Cleared. Import a deck to continue.</string>
+
+    <string name="loaded_fmt">Loaded %1$d sentences.</string>
+
+    <string name="example_speed_fmt">Speed: %1$.2fx</string>
+    <string name="pause_fmt">Pause: %1$d ms</string>
+    <string name="gap_fmt">Between cards: %1$d ms</string>
+</resources>

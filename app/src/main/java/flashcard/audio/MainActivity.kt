@@ -1,0 +1,584 @@
+package flashcard.audio
+
+import android.app.Activity
+import android.content.Intent
+import android.database.sqlite.SQLiteDatabase
+import android.net.Uri
+import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.*
+import androidx.appcompat.app.AppCompatActivity
+import flashcard.audio.models.Sentence
+import flashcard.audio.tts.TtsQueue
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import kotlinx.coroutines.*
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.util.Locale
+import java.util.zip.ZipInputStream
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+
+class MainActivity : AppCompatActivity() {
+
+    private val PREFS = "ankilisten"
+    private val K_RATE = "exampleRate"
+    private val K_PAUSE = "pauseMs"
+    private val K_GAP = "gapBetweenCardsMs"
+    private val K_SRC_LANG = "sourceLang"
+    private val K_TGT_LANG = "targetLang"
+    private val K_LAST_INDEX = "lastIndex"
+
+    private val FIELD_EX_SOURCE = "Example Source"
+    private val FIELD_EX_TARGET = "Example Target"
+    private val CACHE_FILE = "ankilisten_cache.json"
+
+    private lateinit var tts: TtsQueue
+
+    private var sentences: List<Sentence> = emptyList()
+    private var index = 0
+
+    private var exampleRate = 1.0f
+    private var pauseMs: Long = 800
+    private var gapBetweenCardsMs: Long = 500
+    private var sourceLang: String = ""
+    private var targetLang: String = ""
+
+    private var isAutoplay = false
+    private var autoplayJob: Job? = null
+
+    // Main UI
+    private lateinit var sourceTextView: TextView
+    private lateinit var targetTextView: TextView
+    private lateinit var counterTextView: TextView
+    private lateinit var playBtn: Button
+
+    // Bottom sheet
+    private var settingsDialog: BottomSheetDialog? = null
+    private var settingsView: android.view.View? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        tts = TtsQueue(this)
+
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+
+        // Load persisted settings
+        exampleRate = prefs.getFloat(K_RATE, 1.0f)
+        pauseMs = prefs.getLong(K_PAUSE, 800L)
+        gapBetweenCardsMs = prefs.getLong(K_GAP, 500L)
+        sourceLang = prefs.getString(K_SRC_LANG, "") ?: ""
+        targetLang = prefs.getString(K_TGT_LANG, "") ?: ""
+
+        // Rotation state wins for session
+        if (savedInstanceState != null) {
+            index = savedInstanceState.getInt("index", 0)
+            exampleRate = savedInstanceState.getFloat("exampleRate", exampleRate)
+            pauseMs = savedInstanceState.getLong("pauseMs", pauseMs)
+            gapBetweenCardsMs = savedInstanceState.getLong("gapBetweenCardsMs", gapBetweenCardsMs)
+            sourceLang = savedInstanceState.getString("sourceLang", sourceLang) ?: sourceLang
+            targetLang = savedInstanceState.getString("targetLang", targetLang) ?: targetLang
+            isAutoplay = savedInstanceState.getBoolean("isAutoplay", false)
+        }
+
+        // Main controls
+        val settingsBtn = findViewById<android.view.View>(R.id.settingsBtn)
+        val prevBtn = findViewById<Button>(R.id.prevBtn)
+        playBtn = findViewById(R.id.playBtn)
+        val nextBtn = findViewById<Button>(R.id.nextBtn)
+
+        sourceTextView = findViewById(R.id.sourceText)
+        targetTextView = findViewById(R.id.targetText)
+        counterTextView = findViewById(R.id.counterText)
+
+        settingsBtn.setOnClickListener { openSettingsSheet() }
+
+        playBtn.setOnClickListener {
+            if (sentences.isEmpty()) {
+                Toast.makeText(this, getString(R.string.import_first), Toast.LENGTH_SHORT).show()
+            } else {
+                toggleAutoplay()
+            }
+        }
+
+        nextBtn.setOnClickListener {
+            stopAutoplay()
+            if (sentences.isEmpty()) return@setOnClickListener
+            index = (index + 1).coerceAtMost(sentences.lastIndex)
+            saveIndex()
+            playOnce()
+        }
+
+        prevBtn.setOnClickListener {
+            stopAutoplay()
+            if (sentences.isEmpty()) return@setOnClickListener
+            index = (index - 1).coerceAtLeast(0)
+            saveIndex()
+            playOnce()
+        }
+
+        setPlayButtonUi(false)
+
+        // Load cache on startup
+        val loaded = loadCache()
+        if (loaded) {
+            val savedIdx = prefs.getInt(K_LAST_INDEX, 0)
+            index = savedIdx.coerceIn(0, maxOf(0, sentences.lastIndex))
+            showCurrent(passive = true)
+        } else {
+            setStatus(getString(R.string.ready_import))
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        saveIndex()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("index", index)
+        outState.putFloat("exampleRate", exampleRate)
+        outState.putLong("pauseMs", pauseMs)
+        outState.putLong("gapBetweenCardsMs", gapBetweenCardsMs)
+        outState.putString("sourceLang", sourceLang)
+        outState.putString("targetLang", targetLang)
+        outState.putBoolean("isAutoplay", isAutoplay)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopAutoplay()
+        settingsDialog?.dismiss()
+        if (::tts.isInitialized) tts.shutdown()
+    }
+
+    // -------------------------
+    // Settings bottom sheet
+    // -------------------------
+    private fun openSettingsSheet() {
+        if (settingsDialog == null) {
+            val dialog = BottomSheetDialog(this, R.style.ThemeOverlay_FlashcardAudio_BottomSheet)
+            val view = layoutInflater.inflate(R.layout.settings_sheet, null)
+            dialog.setContentView(view)
+            settingsDialog = dialog
+            settingsView = view
+
+            wireSettingsSheet(view)
+        } else {
+            // Update controls to current values before showing again
+            settingsView?.let { refreshSettingsSheet(it) }
+        }
+
+        settingsDialog?.show()
+    }
+
+    private fun wireSettingsSheet(view: android.view.View) {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+
+        val importBtn = view.findViewById<Button>(R.id.importBtn)
+        val clearCacheBtn = view.findViewById<Button>(R.id.clearCacheBtn)
+        val restartBtn = view.findViewById<Button>(R.id.restartBtn)
+
+        val sourceLangEdit = view.findViewById<EditText>(R.id.sourceLangEdit)
+        val targetLangEdit = view.findViewById<EditText>(R.id.targetLangEdit)
+
+        val exampleRateSeek = view.findViewById<SeekBar>(R.id.exampleRateSeek)
+        val pauseSeek = view.findViewById<SeekBar>(R.id.pauseSeek)
+        val gapSeek = view.findViewById<SeekBar>(R.id.gapSeek)
+
+        val exampleRateLabel = view.findViewById<TextView>(R.id.exampleRateLabel)
+        val pauseLabel = view.findViewById<TextView>(R.id.pauseLabel)
+        val gapLabel = view.findViewById<TextView>(R.id.gapLabel)
+
+        // Initialize from current values
+        refreshSettingsSheet(view)
+
+        // Import
+        importBtn.setOnClickListener {
+            stopAutoplay()
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivityForResult(intent, 1)
+            settingsDialog?.dismiss()
+        }
+
+        // Clear cache
+        clearCacheBtn.setOnClickListener {
+            stopAutoplay()
+            clearCache()
+            settingsDialog?.dismiss()
+        }
+
+        // Restart
+        restartBtn.setOnClickListener {
+            stopAutoplay()
+            index = 0
+            saveIndex()
+            showCurrent(passive = true)
+            settingsDialog?.dismiss()
+        }
+
+        // Languages
+        sourceLangEdit.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                sourceLang = (s?.toString() ?: "").trim()
+                prefs.edit().putString(K_SRC_LANG, sourceLang).apply()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        targetLangEdit.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                targetLang = (s?.toString() ?: "").trim()
+                prefs.edit().putString(K_TGT_LANG, targetLang).apply()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        // Sliders
+        exampleRateSeek.max = 200
+        pauseSeek.max = 3000
+        gapSeek.max = 5000
+
+        exampleRateSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                exampleRate = (p.coerceAtLeast(50)) / 100f
+                exampleRateLabel.text = getString(R.string.example_speed_fmt, exampleRate)
+                prefs.edit().putFloat(K_RATE, exampleRate).apply()
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+
+        pauseSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                pauseMs = p.toLong()
+                pauseLabel.text = getString(R.string.pause_fmt, pauseMs)
+                prefs.edit().putLong(K_PAUSE, pauseMs).apply()
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+
+        gapSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                gapBetweenCardsMs = p.toLong()
+                gapLabel.text = getString(R.string.gap_fmt, gapBetweenCardsMs)
+                prefs.edit().putLong(K_GAP, gapBetweenCardsMs).apply()
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+    }
+
+    private fun refreshSettingsSheet(view: android.view.View) {
+        val sourceLangEdit = view.findViewById<EditText>(R.id.sourceLangEdit)
+        val targetLangEdit = view.findViewById<EditText>(R.id.targetLangEdit)
+
+        val exampleRateSeek = view.findViewById<SeekBar>(R.id.exampleRateSeek)
+        val pauseSeek = view.findViewById<SeekBar>(R.id.pauseSeek)
+        val gapSeek = view.findViewById<SeekBar>(R.id.gapSeek)
+
+        val exampleRateLabel = view.findViewById<TextView>(R.id.exampleRateLabel)
+        val pauseLabel = view.findViewById<TextView>(R.id.pauseLabel)
+        val gapLabel = view.findViewById<TextView>(R.id.gapLabel)
+
+        // Avoid triggering watchers by only setting if changed
+        if (sourceLangEdit.text?.toString() != sourceLang) sourceLangEdit.setText(sourceLang)
+        if (targetLangEdit.text?.toString() != targetLang) targetLangEdit.setText(targetLang)
+
+        val rateProgress = (exampleRate * 100).toInt().coerceIn(50, 200)
+        if (exampleRateSeek.progress != rateProgress) exampleRateSeek.progress = rateProgress
+        if (pauseSeek.progress != pauseMs.toInt().coerceIn(0, 3000)) pauseSeek.progress = pauseMs.toInt().coerceIn(0, 3000)
+        if (gapSeek.progress != gapBetweenCardsMs.toInt().coerceIn(0, 5000)) gapSeek.progress = gapBetweenCardsMs.toInt().coerceIn(0, 5000)
+
+        exampleRateLabel.text = getString(R.string.example_speed_fmt, exampleRate)
+        pauseLabel.text = getString(R.string.pause_fmt, pauseMs)
+        gapLabel.text = getString(R.string.gap_fmt, gapBetweenCardsMs)
+    }
+
+    // -------------------------
+    // Playback + UI
+    // -------------------------
+    private fun setStatus(msg: String) {
+        sourceTextView.text = msg
+        targetTextView.text = ""
+        counterTextView.text = ""
+    }
+
+    private fun showCurrent(passive: Boolean = false) {
+        if (sentences.isEmpty()) {
+            setStatus(getString(R.string.ready_import))
+            return
+        }
+        index = index.coerceIn(0, sentences.lastIndex)
+        val s = sentences[index]
+        sourceTextView.text = s.ind
+        targetTextView.text = s.nl
+        counterTextView.text = "${index + 1} / ${sentences.size}" + if (passive) "" else ""
+    }
+
+    private fun setPlayButtonUi(running: Boolean) {
+        playBtn.text = if (running) getString(R.string.stop) else getString(R.string.play)
+    }
+
+    private fun toggleAutoplay() {
+        if (isAutoplay) stopAutoplay() else startAutoplay()
+    }
+
+    private fun startAutoplay() {
+        if (sentences.isEmpty()) return
+        isAutoplay = true
+        setPlayButtonUi(true)
+
+        autoplayJob?.cancel()
+        autoplayJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive && isAutoplay) {
+                if (sentences.isEmpty()) break
+                index = index.coerceIn(0, sentences.lastIndex)
+                saveIndex()
+
+                playOnceAwaitDone()
+
+                if (!isAutoplay) break
+                if (gapBetweenCardsMs > 0) delay(gapBetweenCardsMs)
+
+                if (index >= sentences.lastIndex) {
+                    stopAutoplay()
+                    counterTextView.text = "${sentences.size} / ${sentences.size}  •  ${getString(R.string.done_end)}"
+                    break
+                } else {
+                    index += 1
+                    saveIndex()
+                }
+            }
+        }
+    }
+
+    private fun stopAutoplay() {
+        isAutoplay = false
+        autoplayJob?.cancel()
+        autoplayJob = null
+        if (::playBtn.isInitialized) setPlayButtonUi(false)
+        if (::tts.isInitialized) tts.stop()
+    }
+
+    private fun playOnce() {
+        if (sentences.isEmpty()) return
+        showCurrent(passive = false)
+        saveIndex()
+
+        val s = sentences[index]
+        tts.speakPair(
+            sourceText = s.ind,
+            sourceLocale = localeFrom(sourceLang),
+            sourceRate = exampleRate,
+            pauseMs = pauseMs,
+            targetText = s.nl,
+            targetLocale = localeFrom(targetLang),
+            targetRate = 1.0f,
+            onDone = null
+        )
+    }
+
+    private suspend fun playOnceAwaitDone() {
+        if (sentences.isEmpty()) return
+        showCurrent(passive = false)
+        saveIndex()
+
+        val s = sentences[index]
+        suspendCoroutine<Unit> { cont ->
+            tts.speakPair(
+                sourceText = s.ind,
+                sourceLocale = localeFrom(sourceLang),
+                sourceRate = exampleRate,
+                pauseMs = pauseMs,
+                targetText = s.nl,
+                targetLocale = localeFrom(targetLang),
+                targetRate = 1.0f,
+                onDone = { cont.resume(Unit) }
+            )
+        }
+    }
+
+    private fun localeFrom(tag: String): Locale {
+        val t = tag.trim()
+        if (t.isBlank()) return Locale.getDefault()
+        return Locale.forLanguageTag(t)
+    }
+
+    private fun saveIndex() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putInt(K_LAST_INDEX, index)
+            .apply()
+    }
+
+    // -------------------------
+    // Import / cache / parsing
+    // -------------------------
+    override fun onActivityResult(req: Int, res: Int, data: Intent?) {
+        super.onActivityResult(req, res, data)
+        if (req == 1 && res == Activity.RESULT_OK) {
+            val uri = data?.data ?: return
+            importApkgToCache(uri)
+        }
+    }
+
+    private fun importApkgToCache(uri: Uri) {
+        stopAutoplay()
+        setStatus(getString(R.string.importing))
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val dbFile = unzipApkgToDb(uri)
+                val parsed = parseAnkiDb(dbFile)
+                writeCache(parsed)
+
+                withContext(Dispatchers.Main) {
+                    sentences = parsed
+                    index = 0
+                    saveIndex()
+                    showCurrent(passive = true)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    setStatus("Import error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun cachePath(): File = File(filesDir, CACHE_FILE)
+
+    private fun writeCache(list: List<Sentence>) {
+        val root = JSONObject()
+        root.put("version", 1)
+        root.put("createdAt", System.currentTimeMillis())
+
+        val arr = JSONArray()
+        for (s in list) {
+            val o = JSONObject()
+            o.put("id", s.id)
+            o.put("source", s.ind)
+            o.put("target", s.nl)
+            arr.put(o)
+        }
+        root.put("sentences", arr)
+        cachePath().writeText(root.toString())
+    }
+
+    private fun loadCache(): Boolean {
+        val f = cachePath()
+        if (!f.exists()) return false
+        return try {
+            val txt = f.readText()
+            val root = JSONObject(txt)
+            val arr = root.getJSONArray("sentences")
+            val out = ArrayList<Sentence>(arr.length())
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val id = o.optString("id", i.toString())
+                val src = o.optString("source", "")
+                val tgt = o.optString("target", "")
+                if (src.isNotBlank() && tgt.isNotBlank()) out.add(Sentence(id, src, tgt))
+            }
+            sentences = out
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun clearCache() {
+        cachePath().delete()
+        sentences = emptyList()
+        index = 0
+        saveIndex()
+        setStatus(getString(R.string.cache_cleared))
+    }
+
+    private fun unzipApkgToDb(uri: Uri): File {
+        val root = File(cacheDir, "apkg_${System.currentTimeMillis()}").apply { mkdirs() }
+        var dbFile: File? = null
+
+        contentResolver.openInputStream(uri).use { ins ->
+            ZipInputStream(ins).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (!entry.isDirectory) {
+                        if (entry.name.endsWith("collection.anki2") || entry.name.endsWith("collection.anki21")) {
+                            dbFile = File(root, "collection.anki2")
+                            dbFile!!.outputStream().use { out -> zip.copyTo(out) }
+                        }
+                    }
+                    zip.closeEntry()
+                }
+            }
+        }
+        return requireNotNull(dbFile) { "No collection.anki2/anki21 found in APKG." }
+    }
+
+    private fun parseAnkiDb(dbFile: File): List<Sentence> {
+        val out = mutableListOf<Sentence>()
+        val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
+
+        db.use { d ->
+            val modelsJson = d.rawQuery("SELECT models FROM col LIMIT 1", null).use { c ->
+                require(c.moveToFirst()) { "Empty 'col' table." }
+                c.getString(0)
+            }
+            val modelMap = JSONObject(modelsJson)
+
+            fun idxFor(model: JSONObject, wanted: String): Int? {
+                val flds = model.getJSONArray("flds")
+                for (i in 0 until flds.length()) {
+                    val name = flds.getJSONObject(i).getString("name")
+                    if (name.equals(wanted, ignoreCase = true)) return i
+                }
+                return null
+            }
+
+            val sep = 0x1F.toChar().toString()
+            d.rawQuery("SELECT id, mid, flds FROM notes", null).use { c ->
+                while (c.moveToNext()) {
+                    val noteId = c.getLong(0).toString()
+                    val mid = c.getLong(1).toString()
+                    val raw = c.getString(2)
+                    val fields = raw.split(sep)
+
+                    val model = modelMap.optJSONObject(mid) ?: continue
+
+                    val srcIdx = idxFor(model, FIELD_EX_SOURCE) ?: continue
+                    val tgtIdx = idxFor(model, FIELD_EX_TARGET) ?: continue
+                    if (srcIdx !in fields.indices || tgtIdx !in fields.indices) continue
+
+                    val source = clean(fields[srcIdx])
+                    val target = clean(fields[tgtIdx])
+
+                    if (source.isNotBlank() && target.isNotBlank()) {
+                        out += Sentence(noteId, source, target)
+                    }
+                }
+            }
+        }
+
+        return out
+    }
+
+    private fun clean(s: String): String =
+        s.replace(Regex("\\[sound:[^\\]]+\\]"), "")
+            .replace(Regex("<[^>]*>"), " ")
+            .replace("&nbsp;", " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+}

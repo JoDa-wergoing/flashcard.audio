@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="main_controls_padding_bottom">72dp</dimen>
+    <dimen name="main_controls_margin_bottom">28dp</dimen>
+</resources>
+

@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/settingsSheetRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/fc_sheet_bg"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Grab handle -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:paddingBottom="10dp">
+
+            <View
+                android:layout_width="44dp"
+                android:layout_height="5dp"
+                android:background="#DDDDDD" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Settings"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="@color/fc_sheet_text_primary"
+            android:paddingBottom="10dp"/>
+
+        <!-- Import / Clear -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/importBtn"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/import_apkg"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/btn_primary"
+                android:backgroundTint="@null"/>
+
+            <Button
+                android:id="@+id/clearCacheBtn"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:text="@string/clear_cache"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/btn_primary"
+                android:backgroundTint="@null"/>
+        </LinearLayout>
+
+        <!-- Restart -->
+        <Button
+            android:id="@+id/restartBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Restart from beginning"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/btn_primary"
+            android:backgroundTint="@null"/>
+
+        <!-- Source language -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/source_lang"
+            android:textStyle="bold"
+            android:textColor="@color/fc_sheet_text_primary"/>
+
+        <EditText
+            android:id="@+id/sourceLangEdit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/lang_hint"
+            android:textColor="@color/fc_sheet_text_primary"
+            android:textColorHint="@color/fc_sheet_text_hint"
+            android:backgroundTint="@color/fc_accent"/>
+
+        <!-- Target language -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/target_lang"
+            android:textStyle="bold"
+            android:textColor="@color/fc_sheet_text_primary"/>
+
+        <EditText
+            android:id="@+id/targetLangEdit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/lang_hint"
+            android:textColor="@color/fc_sheet_text_primary"
+            android:textColorHint="@color/fc_sheet_text_hint"/>
+
+        <!-- Example speed -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/example_speed"
+            android:textStyle="bold"
+            android:textColor="@color/fc_sheet_text_primary"/>
+
+        <SeekBar
+            android:id="@+id/exampleRateSeek"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="200"
+            android:progress="100"/>
+
+        <TextView
+            android:id="@+id/exampleRateLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/fc_sheet_text_secondary"
+            android:text="Speed: 1.00x"/>
+
+        <!-- Pause -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/pause_between"
+            android:textStyle="bold"
+            android:textColor="@color/fc_sheet_text_primary"/>
+
+        <SeekBar
+            android:id="@+id/pauseSeek"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="3000"
+            android:progress="800"/>
+
+        <TextView
+            android:id="@+id/pauseLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/fc_sheet_text_secondary"
+            android:text="Pause: 800 ms"/>
+
+        <!-- Gap -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/gap_between_cards"
+            android:textStyle="bold"
+            android:textColor="@color/fc_sheet_text_primary"/>
+
+        <SeekBar
+            android:id="@+id/gapSeek"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="5000"
+            android:progress="500"/>
+
+        <TextView
+            android:id="@+id/gapLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/fc_sheet_text_secondary"
+            android:text="Between cards: 500 ms"/>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="28dp"/>
+
+    </LinearLayout>
+</ScrollView>

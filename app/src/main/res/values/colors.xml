@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App (dark) -->
+    <color name="fc_bg">#111111</color>
+    <color name="fc_surface">#111111</color>
+
+    <color name="fc_text_primary">#FFFFFF</color>
+    <color name="fc_text_secondary">#CCCCCC</color>
+    <color name="fc_text_hint">#999999</color>
+
+    <!-- Accent -->
+    <color name="fc_accent">#4DA3FF</color>
+
+    <!-- Settings sheet (must stay white, independent of app theme) -->
+    <color name="fc_sheet_bg">#FFFFFF</color>
+    <color name="fc_sheet_text_primary">#111111</color>
+    <color name="fc_sheet_text_secondary">#3C3C3C</color>
+    <color name="fc_sheet_text_hint">#999999</color>
+</resources>
